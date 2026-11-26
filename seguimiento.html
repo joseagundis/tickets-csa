@@ -337,7 +337,7 @@ function tarjetaComentario(o){
   const csa = S.rol === 'csa';
   return `<section class="panel card"><h3>${csa ? 'Escribir en la historia' : 'Nota para CSA'}</h3>
   <div class="form">
-    <label>Comentario<input id="cTitulo" maxlength="120" placeholder="${csa ? 'Ej. La unidad llegará después de comer' : 'Ej. Hay fila para cargar'}"></label>
+    <label>Comentario (opcional si pones la llegada)<input id="cTitulo" maxlength="120" placeholder="${csa ? 'Ej. La unidad llegará después de comer' : 'Ej. Hay fila para cargar'}"></label>
     <label>Detalle (opcional)<textarea id="cDetalle" maxlength="500"></textarea></label>
     <div class="fila">
       <label>Llegada estimada (opcional)<input id="cEta" type="datetime-local"></label>
@@ -369,7 +369,7 @@ function conectarAcciones(o){
   const cE = $('#cEnviar');
   if (cE) cE.onclick = async () => {
     const titulo = $('#cTitulo').value.trim();
-    if (!titulo) { $('#cMsg').textContent = 'Escribe el comentario.'; return; }
+    if (!titulo && !$('#cEta').value) { $('#cMsg').textContent = 'Escribe el comentario o la llegada estimada.'; return; }
     cE.disabled = true; $('#cMsg').textContent = 'Enviando…';
     try {
       const j = await api({ accion:'comentarOCa', sesion:S.sesion, clave:o.clave, titulo, detalle:$('#cDetalle').value, eta:$('#cEta').value,
