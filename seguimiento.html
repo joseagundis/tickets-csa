@@ -280,7 +280,11 @@ function pintarDetalle(o, ev){
   const [big, color] = encabezado(o);
   const i = Math.max(0, ETAPAS.indexOf(o.etapa));
   const ub = o.ultimaUbicacion;
-  const sub = ub ? `Último reporte: ${esc(ub.lugar)}, ${esc(fCorta(ub.fecha))}.` : (o.etapa === 'Programada' ? 'Te avisaremos aquí cada movimiento del viaje.' : '');
+  // Lo más reciente que el cliente puede ver (comentario, ubicación, foto o aviso): arriba se resume la historia
+  const rep = ev.find(e => (S.rol === 'cliente' || e.visible !== false) && /Comentario|Ubicación|Foto|Aviso/.test(e.tipo)
+                        && e.titulo !== 'Llegada estimada actualizada');
+  const sub = rep ? `Último reporte: ${esc(rep.titulo)}${rep.detalle && rep.tipo === 'Comentario' ? ' · ' + esc(rep.detalle) : ''}, ${esc(fCorta(rep.fecha))}.`
+                  : (o.etapa === 'Programada' ? 'Te avisaremos aquí cada movimiento del viaje.' : '');
   const tickets = ev.filter(e => e.tipo === 'Ticket' && urlOk(e.foto));
   const fotos = ev.filter(e => urlOk(e.foto));
   $('#detail').innerHTML = `
@@ -294,7 +298,7 @@ function pintarDetalle(o, ev){
     <dl class="times">
       <div><dt>Salida de origen</dt><dd>${o.salida ? esc(fCorta(o.salida)) : 'Pendiente'}<small>${esc(o.origen)}</small></dd></div>
       <div><dt>${o.etapa==='Entregada'?'Entregada':'Llegada estimada'}</dt><dd>${o.etapa==='Entregada' ? esc(fCorta(o.entrega)) : (o.llegadaEst ? esc(fCorta(o.llegadaEst)) + ' aprox.' : 'Por confirmar')}<small>${esc(o.destino)}</small></dd></div>
-      <div><dt>Última ubicación</dt><dd>${ub ? esc(ub.lugar) : 'Sin reportes'}<small>${ub ? esc(fCorta(ub.fecha)) + (urlOk(ub.mapa) ? ` · <a href="${esc(urlOk(ub.mapa))}" target="_blank" rel="noopener">ver mapa</a>` : '') : '&nbsp;'}</small></dd></div>
+      <div><dt>Último reporte</dt><dd>${rep ? esc(rep.titulo) : 'Sin reportes'}<small>${rep ? esc(fCorta(rep.fecha)) + (urlOk(rep.liga) && rep.tipo !== 'Comentario' ? ` · <a href="${esc(urlOk(rep.liga))}" target="_blank" rel="noopener">ver mapa</a>` : '') : '&nbsp;'}</small></dd></div>
     </dl>
   </section>
   ${S.rol === 'csa' ? '<p class="aviso">Arriba ves el rastreo tal como lo ve el cliente. Los eventos marcados "Solo interno" no los ve.</p>' : ''}
