@@ -369,12 +369,13 @@ function conectarAcciones(o){
   const cE = $('#cEnviar');
   if (cE) cE.onclick = async () => {
     const titulo = $('#cTitulo').value.trim();
+    if ($('#cEta').validity && $('#cEta').validity.badInput) { $('#cMsg').textContent = 'La llegada estimada está incompleta: llena día, mes, año, hora, minutos y a.m./p.m.'; return; }
     if (!titulo && !$('#cEta').value) { $('#cMsg').textContent = 'Escribe el comentario o la llegada estimada.'; return; }
     cE.disabled = true; $('#cMsg').textContent = 'Enviando…';
     try {
       const j = await api({ accion:'comentarOCa', sesion:S.sesion, clave:o.clave, titulo, detalle:$('#cDetalle').value, eta:$('#cEta').value,
                             visible: $('#cVisible') ? $('#cVisible').checked : false });
-      $('#cMsg').textContent = j.mensaje || (j.ok ? 'Listo.' : 'No se pudo guardar.');
+      $('#cMsg').textContent = (j.mensaje || (j.ok ? 'Listo.' : 'No se pudo guardar.')) + (j.ok && $('#cEta').value ? ' Llegada estimada guardada.' : '');
       if (j.ok) { $('#cTitulo').value = ''; $('#cDetalle').value = ''; $('#cEta').value = ''; setTimeout(() => cargarDetalle(o.clave), 800); }
     } catch (e) { $('#cMsg').textContent = 'Sin conexión. Intenta de nuevo.'; }
     finally { cE.disabled = false; }
