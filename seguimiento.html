@@ -211,7 +211,12 @@ function salir(msg){
   $('#app').hidden = true; $('#login').hidden = false; $('#errLogin').textContent = msg || '';
 }
 $('#btnSalir').onclick = () => salir();
-$('#btnActualizar').onclick = () => cargarLista();
+$('#btnActualizar').onclick = async () => {
+  const b = $('#btnActualizar'); b.disabled = true; b.textContent = 'Actualizando…';
+  try { await cargarLista(true); } finally { b.disabled = false; b.textContent = 'Actualizar'; }
+};
+// ¿Hay algo escrito sin enviar? Entonces el refresco automático no repinta el detalle
+const escribiendo = () => ['#cTitulo', '#cDetalle', '#cEta', '#fObs'].some(s => $(s) && $(s).value) || !!foto;
 $('#selCuenta').onchange = e => { S.cuenta = e.target.value; guardar('rastreo_cuenta', S.cuenta); S.sel = null; cargarLista(); };
 $('#q').addEventListener('input', pintarLista);
 
@@ -229,7 +234,7 @@ function resumen(o){
   if (o.llegadaEst && o.etapa === 'En camino') return ['Llega ' + fCorta(o.llegadaEst), '--accent'];
   return [o.etapa, o.etapa === 'Programada' ? '--st-com' : '--st-tran'];
 }
-async function cargarLista(){
+async function cargarLista(forzar){
   if (!S.ordenes.length) $('#ocs').innerHTML = '<div class="vacio">Cargando…</div>';
   try {
     const j = await api({ accion:'misOCa', sesion:S.sesion, cuenta:S.cuenta });
@@ -240,7 +245,7 @@ async function cargarLista(){
     $('#actualizado').textContent = 'Actualizado ' + fCorta(j.actualizado) + ' · se refresca cada 2 minutos';
     if (!S.sel && S.ordenes.length) S.sel = S.ordenes[0].clave;
     pintarLista();
-    if (S.sel) cargarDetalle(S.sel); else $('#detail').innerHTML = '<div class="panel cargando">Aún no hay órdenes de carga en los últimos 60 días.</div>';
+    if (S.sel && (forzar || !escribiendo())) await cargarDetalle(S.sel); else if (!S.sel) $('#detail').innerHTML = '<div class="panel cargando">Aún no hay órdenes de carga en los últimos 60 días.</div>';
   } catch (e) { if (e.message !== 'sesion') $('#actualizado').textContent = 'Sin conexión. Se reintentará en 2 minutos.'; }
 }
 function pintarLista(){
