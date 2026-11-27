@@ -59,6 +59,7 @@
 
   <label for="obs">Observaciones <span id="obsReq" style="font-weight:400;color:var(--gris)">(opcional)</span></label>
   <textarea id="obs" maxlength="300" placeholder="Ej. en caseta, en fila para descargar, comiendo…"></textarea>
+  <div data-notavoz="u"></div>
 
   <button id="btn" onclick="enviar()">Enviar ubicación</button>
   <div id="msg"></div>
@@ -159,11 +160,13 @@
     $('btn').disabled = true; aviso('Enviando…');
     const d = { accion: 'reportarUbicacion', transportista: TRANSPORTISTA, oc, manual, obs, imagen, fotoEdadSeg,
                 lat: pos.coords.latitude, lng: pos.coords.longitude, precision: pos.coords.accuracy, fechaGps: pos.timestamp };
+    if (window.notaVozDe) Object.assign(d, notaVozDe('u'));
     fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(d) })
     .then(r => r.json()).then(res => {
       if (!res.ok) throw new Error(res.error);
       aviso('✅ Ubicación enviada' + (res.direccion ? ': ' + res.direccion.replace(/\.$/, '') : '') + '. ¡Gracias!');
       $('btn').textContent = 'Enviada';
+      if (window.limpiarNotaVoz) limpiarNotaVoz('u');
     }).catch(e => { aviso('No se envió: ' + (e.message || 'sin señal') + '. Intenta de nuevo.', true); $('btn').disabled = false; });
   }
 </script>
@@ -226,6 +229,78 @@
     };
   }
   const buscar = () => document.querySelectorAll('textarea, input[data-voz]').forEach(poner);
+  buscar();
+  new MutationObserver(buscar).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+
+<!-- Nota de voz: graba audio (máx. 2 min) y lo manda junto con el ticket, la ubicación, la foto o el comentario -->
+<style>
+.nv{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}
+.nv-b{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent,var(--azul,#1a5fb4));color:var(--accent,var(--azul,#1a5fb4));
+  background:transparent;border-radius:99px;padding:8px 14px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.nv-b.on{background:#c62828;border-color:#c62828;color:#fff}
+.nv-b svg{width:16px;height:16px}
+.nv audio{height:36px;max-width:100%}
+.nv-x{border:0;background:none;color:#c62828;font:inherit;font-size:13px;text-decoration:underline;cursor:pointer}
+.nv-m{font-size:12.5px;color:#c62828;width:100%}
+</style>
+<script>
+(function () {
+  const MAX_SEG = 120;
+  const REC = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>';
+  const notas = {};
+  window.notaVozDe = id => notas[id] ? { audio: notas[id].b64, audioTipo: notas[id].tipo, audioSeg: notas[id].seg } : {};
+  window.hayNotaVoz = () => Object.keys(notas).length > 0;
+  window.limpiarNotaVoz = id => { delete notas[id]; document.querySelectorAll('[data-notavoz="' + id + '"]').forEach(pintar); };
+  const tipoOk = () => {
+    if (!window.MediaRecorder) return '';
+    for (const t of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']) if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    return '';
+  };
+  function pintar(c) {
+    const id = c.dataset.notavoz, n = notas[id];
+    c.className = 'nv';
+    if (n) {
+      c.innerHTML = '<audio controls src="' + n.url + '"></audio><button type="button" class="nv-x">Borrar nota de voz</button>';
+      c.querySelector('.nv-x').onclick = () => window.limpiarNotaVoz(id);
+    } else {
+      c.innerHTML = '<button type="button" class="nv-b">' + REC + ' Grabar nota de voz</button>';
+      c.querySelector('.nv-b').onclick = e => grabar(c, e.currentTarget);
+    }
+  }
+  function msg(c, t) { let m = c.querySelector('.nv-m'); if (!m) { m = document.createElement('div'); m.className = 'nv-m'; c.appendChild(m); } m.textContent = t; }
+  async function grabar(c, b) {
+    if (b.rec) { b.rec.stop(); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { msg(c, 'Este navegador no permite grabar audio. Ábrelo en Chrome o Safari.'); return; }
+    let flujo;
+    try { flujo = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { msg(c, 'Permite el micrófono para esta página.'); return; }
+    const tipo = tipoOk();
+    const rec = tipo ? new MediaRecorder(flujo, { mimeType: tipo, audioBitsPerSecond: 32000 }) : new MediaRecorder(flujo);
+    const partes = [], ini = Date.now();
+    b.rec = rec; b.classList.add('on');
+    const reloj = setInterval(() => {
+      const s = Math.round((Date.now() - ini) / 1000);
+      b.innerHTML = REC + ' Detener (' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + ')';
+      if (s >= MAX_SEG) rec.stop();
+    }, 500);
+    rec.ondataavailable = e => { if (e.data && e.data.size) partes.push(e.data); };
+    rec.onstop = () => {
+      clearInterval(reloj); flujo.getTracks().forEach(t => t.stop());
+      const blob = new Blob(partes, { type: rec.mimeType || tipo || 'audio/webm' });
+      const seg = Math.round((Date.now() - ini) / 1000);
+      if (seg < 1 || !blob.size) { pintar(c); return; }
+      const fr = new FileReader();
+      fr.onload = () => {
+        notas[c.dataset.notavoz] = { b64: String(fr.result).split(',')[1], tipo: blob.type, seg, url: URL.createObjectURL(blob) };
+        pintar(c);
+      };
+      fr.readAsDataURL(blob);
+    };
+    rec.start(1000);
+  }
+  const buscar = () => document.querySelectorAll('[data-notavoz]:not([data-nv-ok])').forEach(c => { c.setAttribute('data-nv-ok', '1'); pintar(c); });
   buscar();
   new MutationObserver(buscar).observe(document.body, { childList: true, subtree: true });
 })();
