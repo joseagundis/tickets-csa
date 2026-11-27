@@ -167,5 +167,69 @@
     }).catch(e => { aviso('No se envió: ' + (e.message || 'sin señal') + '. Intenta de nuevo.', true); $('btn').disabled = false; });
   }
 </script>
+<!-- Dictado por voz: botón de micrófono en cada campo de texto (convierte la voz en texto, español de México) -->
+<style>
+.voz-w{position:relative;display:block}
+.voz-w textarea,.voz-w input{padding-right:54px!important;width:100%;box-sizing:border-box}
+.voz-b{position:absolute;right:6px;bottom:6px;width:40px;height:40px;border-radius:50%;border:0;cursor:pointer;
+  background:var(--accent,var(--azul,#1a5fb4));color:#fff;display:flex;align-items:center;justify-content:center;padding:0}
+.voz-b svg{width:20px;height:20px}
+.voz-b.on{background:#c62828;animation:vozp 1s infinite}
+@keyframes vozp{50%{box-shadow:0 0 0 8px rgba(198,40,40,.25)}}
+.voz-msg{font-size:12.5px;color:#c62828;margin-top:4px}
+</style>
+<script>
+(function () {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const MIC = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
+  let activo = null;
+  function aviso(w, t) {
+    let m = w.nextElementSibling;
+    if (!m || !m.classList.contains('voz-msg')) { m = document.createElement('div'); m.className = 'voz-msg'; w.after(m); }
+    m.textContent = t; setTimeout(() => m.remove(), 7000);
+  }
+  function iniciar(el, b, w) {
+    const r = new SR();
+    r.lang = 'es-MX'; r.interimResults = true; r.continuous = true;
+    const base = el.value ? el.value.replace(/\s*$/, ' ') : '';
+    let fin = '';
+    r.onresult = e => {
+      let tmp = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) fin += t.trim() + ' '; else tmp += t;
+      }
+      let v = base + fin + tmp;
+      if (el.maxLength > 0) v = v.slice(0, el.maxLength);
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    r.onerror = e => aviso(w, e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'Permite el micrófono para esta página (candado junto a la dirección).'
+      : e.error === 'no-speech' ? 'No se escuchó nada. Toca el micrófono y habla.' : 'No se pudo dictar. Intenta otra vez.');
+    r.onend = () => { b.classList.remove('on'); b.setAttribute('aria-label', 'Dictar con la voz'); activo = null; el.value = el.value.trim(); };
+    try { r.start(); activo = r; b.classList.add('on'); b.setAttribute('aria-label', 'Detener dictado'); }
+    catch (x) { aviso(w, 'No se pudo abrir el micrófono.'); }
+  }
+  function poner(el) {
+    if (el.dataset.vozOk) return;
+    el.dataset.vozOk = '1';
+    const w = document.createElement('span'); w.className = 'voz-w';
+    el.parentNode.insertBefore(w, el); w.appendChild(el);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'voz-b'; b.title = 'Dictar con la voz'; b.setAttribute('aria-label', 'Dictar con la voz'); b.innerHTML = MIC;
+    w.appendChild(b);
+    b.onclick = () => {
+      if (!SR) { aviso(w, 'Este navegador no permite dictar. Ábrela en Chrome o Safari, o usa el micrófono del teclado.'); return; }
+      if (activo) { activo.stop(); return; }
+      iniciar(el, b, w);
+    };
+  }
+  const buscar = () => document.querySelectorAll('textarea, input[data-voz]').forEach(poner);
+  buscar();
+  new MutationObserver(buscar).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+
 </body>
 </html>
