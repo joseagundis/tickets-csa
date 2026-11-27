@@ -113,6 +113,7 @@ a{color:var(--accent)}
 .camara{display:flex;align-items:center;justify-content:center;gap:8px;border:2px dashed var(--line);border-radius:10px;padding:18px;cursor:pointer;color:var(--accent);font-weight:600;text-align:center}
 .camara img{max-width:100%;max-height:260px;border-radius:8px}
 .nota{font-size:12.5px;color:var(--muted);margin:0}
+.nota-audio{display:block;width:100%;max-width:320px;height:36px;margin-top:6px}
 #cMsg,#fMsg{font-size:14px;font-weight:600;color:var(--fg)}
 .ok{color:var(--st-ok);font-size:13.5px;margin:0}
 .interno{font-size:11px;font-weight:600;padding:1px 7px;border-radius:99px;color:var(--st-warn);background:color-mix(in srgb,var(--st-warn) 12%,transparent);margin-left:6px}
@@ -155,7 +156,7 @@ a{color:var(--accent)}
 <script>
 const API = 'https://script.google.com/macros/s/AKfycbzGsM6DjU8TQ-Hz6njae5Zct9eqCKV6drGlOZ11ulmdcoO0xvkjM-mrrJSfWetzsXfO/exec';
 const ETAPAS = ['Programada', 'Cargada', 'En camino', 'Entregada'];
-const COLOR_TIPO = {Estatus:'--accent', Comentario:'--st-com', 'Ubicación':'--st-tran', Foto:'--st-tran', Ticket:'--st-ok', Documento:'--st-doc', Aviso:'--st-warn'};
+const COLOR_TIPO = {Estatus:'--accent', Comentario:'--st-com', 'Ubicación':'--st-tran', Foto:'--st-tran', 'Nota de voz':'--st-com', Ticket:'--st-ok', Documento:'--st-doc', Aviso:'--st-warn'};
 const TIPOS_FOTO = {ruta:'Ubicación en ruta', carga:'Foto de carga', descarga:'Foto de descarga', sellos:'Foto de sellos', incidencia:'Incidencia (solo la ve CSA)'};
 const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const $ = s => document.querySelector(s);
@@ -217,7 +218,7 @@ $('#btnActualizar').onclick = async () => {
   try { await cargarLista(true); } finally { b.disabled = false; b.textContent = 'Actualizar'; }
 };
 // ¿Hay algo escrito sin enviar? Entonces el refresco automático no repinta el detalle
-const escribiendo = () => ['#cTitulo', '#cDetalle', '#cEta', '#fObs'].some(s => $(s) && $(s).value) || !!foto;
+const escribiendo = () => ['#cTitulo', '#cDetalle', '#cEta', '#fObs'].some(s => $(s) && $(s).value) || !!foto || !!(window.hayNotaVoz && hayNotaVoz());
 $('#selCuenta').onchange = e => { S.cuenta = e.target.value; guardar('rastreo_cuenta', S.cuenta); S.sel = null; cargarLista(); };
 $('#q').addEventListener('input', pintarLista);
 
@@ -325,6 +326,7 @@ function pintarDetalle(o, ev){
       <div class="when">${esc(fCorta(e.fecha))} · ${esc(e.tipo)}</div><div class="t">${esc(e.titulo)}${e.visible === false ? '<span class="interno">Solo interno</span>' : ''}</div>
       ${e.detalle ? `<div>${esc(e.detalle)}</div>` : ''}
       ${e.eta ? `<div>Llegada estimada: ${esc(fCorta(e.eta))}</div>` : ''}
+      ${urlOk(e.audio) ? `<audio class="nota-audio" controls preload="none" src="${esc(imgDbx(e.audio))}"></audio>` : ''}
       <div class="by">${esc(e.autor)}${urlOk(e.liga) ? ` · <a href="${esc(urlOk(e.liga))}" target="_blank" rel="noopener">${e.tipo==='Ubicación'||e.tipo==='Foto'?'Ver en mapa':e.tipo==='Documento'?'Abrir PDF':'Abrir'}</a>` : ''}${urlOk(e.foto) && S.rol !== 'cliente' ? ` · <a href="${esc(urlOk(e.foto))}" target="_blank" rel="noopener">Ver foto</a>` : ''}${S.rol === 'csa' && e.id ? ` · <button class="lnk" type="button" data-vis="${esc(e.id)}" data-v="${e.visible ? '0' : '1'}">${e.visible ? 'Ocultar al cliente' : 'Mostrar al cliente'}</button>` : ''}</div></li>`).join('') || '<li class="vacio">Sin movimientos todavía.</li>'}</ol>
   </section>`;
   conectarAcciones(o);
@@ -339,6 +341,7 @@ function tarjetaFoto(o){
     <input id="fArchivo" type="file" accept="image/*" capture="environment" hidden>
     <p class="nota" id="fGps">La ubicación se toma al momento de la foto.</p>
     <label>Comentario (opcional)<textarea id="fObs" maxlength="300" placeholder="Ej. cargado y sellado, saliendo de la mina"></textarea></label>
+    <div data-notavoz="f"></div>
     <button class="btn" id="fEnviar" type="button" disabled>Enviar foto</button>
     <p class="nota" id="fMsg" role="status"></p>
   </div></section>`;
@@ -349,6 +352,7 @@ function tarjetaComentario(o){
   <div class="form">
     <label>Comentario<input data-voz id="cTitulo" maxlength="120" placeholder="${csa ? 'Ej. La unidad llegará después de comer' : 'Ej. Hay fila para cargar'}"></label>
     <label>Detalle (opcional)<textarea id="cDetalle" maxlength="500"></textarea></label>
+    <div data-notavoz="c"></div>
     <div class="fila">
       <label>Llegada estimada (opcional)<input id="cEta" type="datetime-local"></label>
       ${csa ? '<label class="chk"><input id="cVisible" type="checkbox" checked> Visible para el cliente</label>' : ''}
@@ -380,13 +384,14 @@ function conectarAcciones(o){
   if (cE) cE.onclick = async () => {
     const titulo = $('#cTitulo').value.trim();
     if ($('#cEta').validity && $('#cEta').validity.badInput) { $('#cMsg').textContent = 'La llegada estimada está incompleta: llena día, mes, año, hora, minutos y a.m./p.m.'; return; }
-    if (!titulo && !$('#cDetalle').value.trim() && !$('#cEta').value) { $('#cMsg').textContent = 'Escribe el comentario o la llegada estimada.'; return; }
+    const nvC = window.notaVozDe ? notaVozDe('c') : {};
+    if (!titulo && !$('#cDetalle').value.trim() && !$('#cEta').value && !nvC.audio) { $('#cMsg').textContent = 'Escribe el comentario, graba una nota de voz o pon la llegada estimada.'; return; }
     cE.disabled = true; $('#cMsg').textContent = 'Enviando…';
     try {
       const j = await api({ accion:'comentarOCa', sesion:S.sesion, clave:o.clave, titulo, detalle:$('#cDetalle').value, eta:$('#cEta').value,
-                            visible: $('#cVisible') ? $('#cVisible').checked : false });
+                            visible: $('#cVisible') ? $('#cVisible').checked : false, ...nvC });
       $('#cMsg').textContent = (j.mensaje || (j.ok ? 'Listo.' : 'No se pudo guardar.')) + (j.ok && $('#cEta').value ? ' Llegada estimada guardada.' : '');
-      if (j.ok) { $('#cTitulo').value = ''; $('#cDetalle').value = ''; $('#cEta').value = ''; setTimeout(() => cargarDetalle(o.clave), 800); }
+      if (j.ok) { if (window.limpiarNotaVoz) limpiarNotaVoz('c'); $('#cTitulo').value = ''; $('#cDetalle').value = ''; $('#cEta').value = ''; setTimeout(() => cargarDetalle(o.clave), 800); }
     } catch (e) { $('#cMsg').textContent = 'Sin conexión. Intenta de nuevo.'; }
     finally { cE.disabled = false; }
   };
@@ -422,9 +427,9 @@ function conectarAcciones(o){
     try {
       const j = await api({ accion:'reportarFotoOCa', sesion:S.sesion, clave:o.clave, tipo:$('#fTipo').value, obs:$('#fObs').value,
         imagen:foto, fotoEdadSeg:fotoEdad, lat:gps ? gps.coords.latitude : '', lng:gps ? gps.coords.longitude : '',
-        precision:gps ? gps.coords.accuracy : '', fechaGps:gps ? gps.timestamp : '' });
+        precision:gps ? gps.coords.accuracy : '', fechaGps:gps ? gps.timestamp : '', ...(window.notaVozDe ? notaVozDe('f') : {}) });
       $('#fMsg').textContent = j.mensaje || (j.ok ? 'Foto enviada.' : 'No se pudo enviar.');
-      if (j.ok) { foto = null; $('#fVista').hidden = true; $('#fTxt').hidden = false; $('#fObs').value = ''; setTimeout(() => cargarDetalle(o.clave), 800); }
+      if (j.ok) { if (window.limpiarNotaVoz) limpiarNotaVoz('f'); foto = null; $('#fVista').hidden = true; $('#fTxt').hidden = false; $('#fObs').value = ''; setTimeout(() => cargarDetalle(o.clave), 800); }
       else b.disabled = false;
     } catch (e) { $('#fMsg').textContent = 'Sin señal. Intenta de nuevo cuando tengas internet.'; b.disabled = false; }
   };
@@ -493,6 +498,78 @@ setInterval(() => { if (S.sesion && !document.hidden) cargarLista(); }, 120000);
     };
   }
   const buscar = () => document.querySelectorAll('textarea, input[data-voz]').forEach(poner);
+  buscar();
+  new MutationObserver(buscar).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+
+<!-- Nota de voz: graba audio (máx. 2 min) y lo manda junto con el ticket, la ubicación, la foto o el comentario -->
+<style>
+.nv{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}
+.nv-b{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent,var(--azul,#1a5fb4));color:var(--accent,var(--azul,#1a5fb4));
+  background:transparent;border-radius:99px;padding:8px 14px;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.nv-b.on{background:#c62828;border-color:#c62828;color:#fff}
+.nv-b svg{width:16px;height:16px}
+.nv audio{height:36px;max-width:100%}
+.nv-x{border:0;background:none;color:#c62828;font:inherit;font-size:13px;text-decoration:underline;cursor:pointer}
+.nv-m{font-size:12.5px;color:#c62828;width:100%}
+</style>
+<script>
+(function () {
+  const MAX_SEG = 120;
+  const REC = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>';
+  const notas = {};
+  window.notaVozDe = id => notas[id] ? { audio: notas[id].b64, audioTipo: notas[id].tipo, audioSeg: notas[id].seg } : {};
+  window.hayNotaVoz = () => Object.keys(notas).length > 0;
+  window.limpiarNotaVoz = id => { delete notas[id]; document.querySelectorAll('[data-notavoz="' + id + '"]').forEach(pintar); };
+  const tipoOk = () => {
+    if (!window.MediaRecorder) return '';
+    for (const t of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']) if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    return '';
+  };
+  function pintar(c) {
+    const id = c.dataset.notavoz, n = notas[id];
+    c.className = 'nv';
+    if (n) {
+      c.innerHTML = '<audio controls src="' + n.url + '"></audio><button type="button" class="nv-x">Borrar nota de voz</button>';
+      c.querySelector('.nv-x').onclick = () => window.limpiarNotaVoz(id);
+    } else {
+      c.innerHTML = '<button type="button" class="nv-b">' + REC + ' Grabar nota de voz</button>';
+      c.querySelector('.nv-b').onclick = e => grabar(c, e.currentTarget);
+    }
+  }
+  function msg(c, t) { let m = c.querySelector('.nv-m'); if (!m) { m = document.createElement('div'); m.className = 'nv-m'; c.appendChild(m); } m.textContent = t; }
+  async function grabar(c, b) {
+    if (b.rec) { b.rec.stop(); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { msg(c, 'Este navegador no permite grabar audio. Ábrelo en Chrome o Safari.'); return; }
+    let flujo;
+    try { flujo = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { msg(c, 'Permite el micrófono para esta página.'); return; }
+    const tipo = tipoOk();
+    const rec = tipo ? new MediaRecorder(flujo, { mimeType: tipo, audioBitsPerSecond: 32000 }) : new MediaRecorder(flujo);
+    const partes = [], ini = Date.now();
+    b.rec = rec; b.classList.add('on');
+    const reloj = setInterval(() => {
+      const s = Math.round((Date.now() - ini) / 1000);
+      b.innerHTML = REC + ' Detener (' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') + ')';
+      if (s >= MAX_SEG) rec.stop();
+    }, 500);
+    rec.ondataavailable = e => { if (e.data && e.data.size) partes.push(e.data); };
+    rec.onstop = () => {
+      clearInterval(reloj); flujo.getTracks().forEach(t => t.stop());
+      const blob = new Blob(partes, { type: rec.mimeType || tipo || 'audio/webm' });
+      const seg = Math.round((Date.now() - ini) / 1000);
+      if (seg < 1 || !blob.size) { pintar(c); return; }
+      const fr = new FileReader();
+      fr.onload = () => {
+        notas[c.dataset.notavoz] = { b64: String(fr.result).split(',')[1], tipo: blob.type, seg, url: URL.createObjectURL(blob) };
+        pintar(c);
+      };
+      fr.readAsDataURL(blob);
+    };
+    rec.start(1000);
+  }
+  const buscar = () => document.querySelectorAll('[data-notavoz]:not([data-nv-ok])').forEach(c => { c.setAttribute('data-nv-ok', '1'); pintar(c); });
   buscar();
   new MutationObserver(buscar).observe(document.body, { childList: true, subtree: true });
 })();
